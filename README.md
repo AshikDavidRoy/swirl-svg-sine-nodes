@@ -193,16 +193,3 @@ links: [
 ```
 
 ---
-
-## 🖥️ How to Run
-
-1. Clone the repo:
-
-```bash
-git clone https://github.com/your-username/swirl-path-graph.git
-cd swirl-path-graph
-```
-
-2. Open `index.html` in any browser.
-
----
