@@ -1,4 +1,3 @@
-
 # 🌪️ Swirl Path Graph: Interactive Node-Link Tree with Curved Connections
 
 This project visualizes a dynamic **tree-based node-link diagram** using [D3.js](https://d3js.org/) with **customizable swirl paths** (curved connections) between nodes. These swirl paths are controlled entirely via `data.js`, making it easy to define how each node connects to others using animated or organic-looking curves.
@@ -101,95 +100,152 @@ Every node can have the following:
 ---
 
 ## 📜 How `graph.js` Works — Line by Line Summary
+# **Tornado Tree Graph: Technical Explanation**
 
-### Data Preparation
-
-```js
-var data_array = data.concat();            // Deep copy of imported data
-var finalized_array = { ... };             // Root tree with "start" > "about" > data
-```
-
-### Tree Parsing
-
-```js
-var tree = d3.layout.tree().size([width, height]);
-var nodes = tree.nodes(data);
-var links = tree.links(nodes);
-```
-
-D3 generates the basic tree, then we inject:
-
-```js
-// Extra swirl for links from nodes with `swirl`
-links.forEach((link) => {
-  if (link.source.swirl) link.swirl = link.source.swirl;
-});
-```
-
-### Custom Links from `data.js`
-
-```js
-if (d.links) {
-  d.links.forEach((link) => {
-    const fromNode = nodes.find(n => n.name === link.fromNode);
-    const toNode = nodes.find(n => n.name === link.toNode);
-    links.push({ source: fromNode, target: toNode, swirl: link.swirl });
-  });
-}
-```
-
-### Swirl Path Generator
-
-```js
-function generateSwirlPath(d) {
-  const swirl = d.swirl || defaultSwirl;
-  const offset = swirl.amplitude * Math.sin(frequency * y + phase);
-  return `M... C... C...`;
-}
-```
-
-Every link is rendered as a curved Bézier path using that math.
-
-### Goal Links
-
-```js
-if (d.toGoal) {
-  links.push({ source: d, target: GoalNode, swirl: d.swirl });
-}
-```
-
-Adds final curved paths from any `toGoal` node to the `"Goal"`.
+This document explains how the **Tornado Tree Graph** works, focusing on:
+1. **Data Structure & Tree Construction**
+2. **Swirling Path Algorithm (Sine Wave-Based Links)**
+3. **D3.js Visualization Pipeline**
+4. **Interactive Features (Highlighting & Resizing)**
 
 ---
 
-## 🛠️ To Customize
+## **1. Data Structure & Tree Construction**
+The graph is built from a **nested hierarchical dataset** (`data.js`) structured as follows:
 
-1. **Edit `data.js`**
+### **Node Properties**
+| Property | Description |
+|----------|------------|
+| `name` | Unique identifier for the node |
+| `path` | Grouping key (used for highlighting) |
+| `toGoal` | If `true`, connects directly to the "Goal" node |
+| `xOffset`, `yOffset` | Adjusts node position from default layout |
+| `swirl` | Controls the curvature of outgoing links |
+| `children` | Array of child nodes (recursive structure) |
+| `links` | Additional cross-connections between nodes |
 
-   * Add or remove nodes
-   * Control swirls, positions, and cross-links
+### **Tree Modifications**
+- The `pathGraph()` function:
+  - Adds a **"Goal" node** to all terminal nodes (leaf nodes).
+  - Collects all parent nodes that need direct connections to the goal (`parent_array`).
+  - Prepares the data for D3.js processing.
 
-2. **Swirl Example**
+---
 
+## **2. Swirling Path Algorithm (Sine Wave-Based Links)**
+The **key innovation** in this visualization is the **swirling Bézier curves** connecting nodes, generated using **sine wave modulation**.
+
+### **Swirl Configuration**
+Each link can define a `swirl` object:
 ```js
 swirl: {
-  direction: 1,
-  amplitude: 120,
-  frequency: 0.03,
-  phase: 0.5
+  direction: 1,       // 1 (right) or -1 (left)
+  amplitude: 100,     // Wave "strength" (width of curve)
+  frequency: 0.03,    // How fast the wave oscillates
+  phase: 0.5          // Shifts the wave along the y-axis
 }
 ```
 
-3. **Add Cross Links**
-
+### **Path Generation (`generateSwirlPath()`)**
+The function generates a **cubic Bézier curve** (`C` command in SVG paths) with a **sinusoidal offset**:
 ```js
-links: [
-  {
-    fromNode: "root 1-2",
-    toNode: "root 3-2",
-    swirl: { direction: -1, amplitude: 140, frequency: 0.02, phase: 1.2 }
-  }
-]
+function generateSwirlPath(d) {
+  const { source, target } = d;
+  const curveHeight = (target.y - source.y) / 2;
+
+  const swirl = d.swirl || { direction: 1, amplitude: 80, frequency: 0.02, phase: 0 };
+  const direction = swirl.direction;
+  const amplitude = swirl.amplitude;
+  const frequency = swirl.frequency;
+  const phase = swirl.phase;
+
+  // Apply sine wave to control point X-coordinates
+  const swirlOffsetX = direction * amplitude * Math.sin(frequency * source.y + phase);
+
+  return `
+    M${source.x},${source.y}
+    C${source.x + swirlOffsetX},${source.y + curveHeight},
+     ${target.x - swirlOffsetX},${target.y - curveHeight},
+     ${target.x},${target.y}
+  `;
+}
 ```
 
+#### **How It Works**
+1. **`M${source.x},${source.y}`**  
+   - Moves to the **source node**.
+2. **`C${x1},${y1}, ${x2},${y2}, ${x3},${y3}`**  
+   - **Control points (`x1, y1` and `x2, y2`)** define the curve’s shape.
+   - **`swirlOffsetX`** applies a **sine wave** to shift the control points:
+     - `Math.sin(frequency * y + phase)` creates oscillations.
+     - `amplitude` scales the effect.
+     - `direction` flips the curve left/right.
+3. **Final point (`x3, y3`)** lands on the **target node**.
+
+### **Visual Effect**
+- The **frequency** controls how many waves appear along the link.
+- The **amplitude** controls how wide the curve swings.
+- The **phase** shifts the wave along the y-axis.
+
 ---
+
+## **3. D3.js Visualization Pipeline**
+The graph is rendered using **D3.js (v3)** with the following steps:
+
+### **A. Tree Layout Setup**
+```js
+const tree = d3.layout.tree().size([graphWidth, graphHeight]);
+```
+- Computes **node positions** in a hierarchical layout.
+
+### **B. Node Positioning**
+- **Default D3.js Tree Layout:**  
+  - Nodes are spaced vertically (`y = depth * 200`).
+  - Horizontally centered (`x = (x - graphWidth / 2) * (1 - depth * 0.1)`).
+- **Custom Offsets:**  
+  - `xOffset` and `yOffset` adjust positions.
+
+### **C. Link Generation**
+- **Standard Links:** Extracted via `tree.links(nodes)`.
+- **Extra Links:** Added from `node.links` (cross-connections).
+- **Goal Links:** Added for nodes with `toGoal: true`.
+
+### **D. Rendering**
+- **Nodes:** Rendered as circles with labels.
+- **Links:** Drawn as **swirling paths** using `generateSwirlPath()`.
+
+---
+
+## **4. Interactive Features**
+### **Highlighting Paths**
+- Clicking a node **highlights all nodes** with the same `path`.
+- Implemented via jQuery:
+  ```js
+  $(".path-graph").on("click", "svg .node[path]", function () {
+    var path = $(this).attr("path");
+    $("svg [path]").removeClass("highlight");
+    $("svg").find("[path='" + path + "']").addClass("highlight");
+  });
+  ```
+
+### **Responsive Resizing**
+- The graph **redraws on window resize**:
+  ```js
+  d3.select(window).on("resize", function () {
+    var selected_path = $(".node.highlight[path]").attr("path");
+    d3.select(".path-graph svg g").remove();
+    generate_graph(finalized_array, parent_array);
+    $("svg").find("[path='" + selected_path + "']").addClass("highlight");
+  });
+  ```
+
+---
+
+## **Conclusion**
+This visualization combines:
+✅ **Hierarchical tree layout** (D3.js)  
+✅ **Sine-wave-based swirling links** (custom Bézier curves)  
+✅ **Interactive path highlighting** (jQuery/D3.js)  
+✅ **Responsive design** (auto-resizing)  
+
+The **swirling effect** is mathematically controlled by **amplitude, frequency, and phase**, making it highly customizable. This approach could be extended for **flow diagrams, decision trees, or network graphs** requiring organic, curved connections.
